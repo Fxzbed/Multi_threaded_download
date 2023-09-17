@@ -1,5 +1,5 @@
-#include <curl/curl.h>
-#include <spdlog/spdlog.h>
+#include <../inc/curl/curl.h>
+#include <../inc/spdlog/spdlog.h>
 
 //argc https://releases.ubuntu.com/22.04/ubuntu-22.04-live-server-amd64.iso.zsync ubuntu.zsync
 
