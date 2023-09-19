@@ -1,5 +1,9 @@
 #include <curl/curl.h>
 #include <spdlog/spdlog.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/mman.h>
 
 /*
     interface overview :
@@ -195,43 +199,17 @@
 
 
 
-//argc https://releases.ubuntu.com/22.04/ubuntu-22.04-live-server-amd64.iso.zsync ubuntu.zsync
+//test argc https://releases.ubuntu.com/22.04/ubuntu-22.04.3-live-server-amd64.iso.zsync ubuntu-22.04.3-live-server-amd64.iso.zsync
 
-size_t writeFunc(void* ptr, size_t size, size_t memb, void* userdata) {
-    spdlog::info("writeFunc action! " + (std::to_string)(size * memb));
-    // printf("writeFunc %dd", size * memb);
-    return size * memb;
-}
+struct infoPack
+{
+    char* filePtr;
+    int offsize;
+};
 
-bool download(const char* url, const char* filename) {
-    curl_global_init(CURL_GLOBAL_ALL); 
 
-    CURL* curl = curl_easy_init();
-    if (curl == NULL) {
-        spdlog::warn("curl_easy_init error! return NULL");
-        return false;
-    }
-    // return a easy interface ptr 
-
-    curl_easy_setopt(curl, CURLOPT_URL, url);                   //set url opt
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeFunc);   // third arg is the callback function
-
-    CURLcode res = curl_easy_perform(curl);
-    // use this to action a mission
-    
-    if (res != CURLE_OK) {
-        spdlog::warn("curl_easy_perform failed! res: " + std::to_string(res));
-        return false;
-    } else return true;
-
-    curl_easy_cleanup(curl);
-    // use this to clean curl to end a mission (can not ensure thread safety)
-
-    return true;
-}
-
-long getDownloadLength(const char* url) {
-    long downloadFileLength = 0;
+double getDownloadLength(const char* url) {
+    double downloadFileLength = 0;
     CURL* curl = curl_easy_init();
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
@@ -243,16 +221,99 @@ long getDownloadLength(const char* url) {
         curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &downloadFileLength);
     } else {
         spdlog::warn("getInfo failed!");
-        return -1;
+        downloadFileLength = -1;
     }
 
     curl_easy_cleanup(curl);
     return downloadFileLength;
 }
 
+size_t writeFunc(void* ptr, size_t size, size_t memb, void* userdata) {
+    infoPack* fileptr = (infoPack*)userdata;
+    spdlog::info("writeFunc single receive! " + (std::to_string)(size * memb));
+    // printf("writeFunc %dd", size * memb);
+
+    memcpy(fileptr->filePtr + fileptr->offsize, ptr, size * memb);
+    fileptr->offsize += size * memb;
+    return size * memb;
+}
+
+bool download(const char* url, const char* filename) {
+    long downloadFileLength = getDownloadLength(url);
+    if (downloadFileLength == -1) return false;
+    else spdlog::info("fileLength: " + std::to_string(downloadFileLength));
+
+    int fd = open(filename, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    if (fd == -1) {
+        spdlog::warn("file open failed");
+        return -1;
+    }
+
+    if (-1 == lseek(fd, downloadFileLength - 1, SEEK_SET)) {
+        spdlog::warn("lseek failed!");
+        close(fd);
+        return false;
+    }
+
+    if (1 != write(fd, "", 1)) {
+        spdlog::warn("write failed!");
+        close(fd);
+        return false;
+    }
+
+    char* ptr = (char*)mmap(NULL, downloadFileLength, PROT_WRITE|PROT_READ, MAP_SHARED ,fd, 0);
+    if (ptr == MAP_FAILED) {
+        spdlog::warn("mmap failed");
+        close(fd);
+        return false;
+    }
+    
+    infoPack* info = (infoPack*)malloc(sizeof(infoPack));
+    if (info == NULL) {
+        munmap(ptr, downloadFileLength);
+        spdlog::warn("malloc info error");
+        return false;
+    }
+    info->filePtr = ptr;
+    info->offsize = 0;
+
+    // curl_global_init(CURL_GLOBAL_ALL); 
+
+    CURL* curl = curl_easy_init();
+    if (curl == NULL) {
+        spdlog::warn("curl_easy_init error! return NULL");
+        return false;
+    }
+    // return a easy interface ptr 
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);                   //set url opt
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeFunc);   // third arg is the callback function
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, info);
+
+    CURLcode res = curl_easy_perform(std::move(curl));
+    // use this to action a mission
+    
+    if (res != CURLE_OK) {
+        spdlog::warn("curl_easy_perform failed! res: " + std::to_string(res));
+        return false;
+    } else return true;
+
+    curl_easy_cleanup(curl);
+    // use this to clean curl to end a mission (can not ensure thread safety)
+
+    free(info);
+    munmap(ptr, downloadFileLength);
+    free(ptr);
+    close(fd);
+
+    return true;
+}
+
+
+
 int main(int argc, const char* argv[]) {
-    getDownloadLength(argv[1]);
-    // download(argv[1], argv[2]);
-    spdlog::info("download function over");
+    // getDownloadLength(argv[1]);
+    if (download(argv[1], argv[2])) spdlog::info("download function over");
+    else spdlog::warn("file download success");
     return 0;
 }
