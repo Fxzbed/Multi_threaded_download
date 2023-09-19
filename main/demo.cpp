@@ -188,6 +188,9 @@
 
         Return value:
             Void
+
+--------------------------------------------------------------------------------------------------------
+
 */ 
 
 
@@ -227,8 +230,29 @@ bool download(const char* url, const char* filename) {
     return true;
 }
 
+long getDownloadLength(const char* url) {
+    long downloadFileLength = 0;
+    CURL* curl = curl_easy_init();
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HEADER, 1);
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &downloadFileLength);
+    } else {
+        spdlog::warn("getInfo failed!");
+        return -1;
+    }
+
+    curl_easy_cleanup(curl);
+    return downloadFileLength;
+}
+
 int main(int argc, const char* argv[]) {
-    download(argv[1], argv[2]);
+    getDownloadLength(argv[1]);
+    // download(argv[1], argv[2]);
     spdlog::info("download function over");
     return 0;
 }
