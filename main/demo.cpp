@@ -1,5 +1,5 @@
-#include <../inc/curl/curl.h>
-#include <../inc/spdlog/spdlog.h>
+#include <curl/curl.h>
+#include <spdlog/spdlog.h>
 
 /*
     interface overview :
